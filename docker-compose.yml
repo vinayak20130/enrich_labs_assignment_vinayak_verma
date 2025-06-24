@@ -1,0 +1,116 @@
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: vendor-service-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: vendor_service
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - vendor-network
+
+  # Redis for job queue
+  redis:
+    image: redis:7.2-alpine
+    container_name: vendor-service-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - vendor-network
+
+  # Main API Service
+  api:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    container_name: vendor-service-api
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - MONGO_URL=mongodb://mongodb:27017
+      - REDIS_URL=redis://redis:6379
+      - API_BASE_URL=http://api:3000
+      - SYNC_VENDOR_URL=http://sync-vendor:3001/api/data
+      - ASYNC_VENDOR_URL=http://async-vendor:3002/api/data
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mongodb
+      - redis
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - vendor-network
+
+  # Background Worker
+  worker:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    container_name: vendor-service-worker
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - MONGO_URL=mongodb://mongodb:27017
+      - REDIS_URL=redis://redis:6379
+      - API_BASE_URL=http://api:3000
+      - SYNC_VENDOR_URL=http://sync-vendor:3001/api/data
+      - ASYNC_VENDOR_URL=http://async-vendor:3002/api/data
+    depends_on:
+      - mongodb
+      - redis
+      - api
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - vendor-network
+
+  # Sync Vendor Mock
+  sync-vendor:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      target: sync-vendor
+    container_name: vendor-service-sync-mock
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - SYNC_VENDOR_PORT=3001
+    ports:
+      - "3001:3001"
+    networks:
+      - vendor-network
+
+  # Async Vendor Mock
+  async-vendor:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      target: async-vendor
+    container_name: vendor-service-async-mock
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - ASYNC_VENDOR_PORT=3002
+    ports:
+      - "3002:3002"
+    networks:
+      - vendor-network
+
+volumes:
+  mongodb_data:
+  redis_data:
+
+networks:
+  vendor-network:
+    driver: bridge
